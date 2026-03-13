@@ -16,57 +16,45 @@ abstract class LineHistoryContractTest {
     ): LineHistory
 
     @Test
-    fun initializesWithExactlyScreenHeightBlankLines() {
+    fun initializesEmpty() {
         val history = createLineHistory(width = 5, height = 3, scrollbackMaxSize = 10)
 
         assertEquals(5, history.width)
         assertEquals(3, history.height)
         assertEquals(10, history.scrollbackMaxSize)
+        assertEquals(0, history.size)
+        assertEquals(emptyList(), history.lines())
+    }
+
+    @Test
+    fun appendLineStoresLinesInInsertionOrder() {
+        val history = createLineHistory(width = 5, height = 3, scrollbackMaxSize = 10)
+
+        history.appendLine(lineOf("111", 5))
+        history.appendLine(lineOf("222", 5))
+        history.appendLine(lineOf("333", 5))
+
         assertEquals(3, history.size)
-        assertEquals(listOf("     ", "     ", "     "), history.lines().map { it.asPlainString() })
-    }
-
-    @Test
-    fun setLineReplacesLineAtGlobalIndex() {
-        val history = createLineHistory(width = 5, height = 3, scrollbackMaxSize = 10)
-        val line = lineOf("abc", 5)
-
-        history.setLine(1, line)
-
-        assertSame(line, history.getLine(1))
-        assertEquals("abc  ", history.getLine(1).asPlainString())
-    }
-
-    @Test
-    fun appendLineAddsLineAtBottomOfVisibleArea() {
-        val history = createLineHistory(width = 5, height = 3, scrollbackMaxSize = 10)
-
-        history.setLine(0, lineOf("111", 5))
-        history.setLine(1, lineOf("222", 5))
-        history.setLine(2, lineOf("333", 5))
-
-        history.appendLine(lineOf("999", 5))
-
-        assertEquals(4, history.size)
         assertEquals(
-            listOf("111  ", "222  ", "333  ", "999  "),
+            listOf("111  ", "222  ", "333  "),
             history.lines().map { it.asPlainString() }
         )
     }
 
     @Test
-    fun appendLineTurnsOldTopScreenLinesIntoScrollback() {
+    fun setLineReplacesLineAtIndex() {
         val history = createLineHistory(width = 5, height = 3, scrollbackMaxSize = 10)
 
-        history.setLine(0, lineOf("111", 5))
-        history.setLine(1, lineOf("222", 5))
-        history.setLine(2, lineOf("333", 5))
+        history.appendLine(lineOf("111", 5))
+        history.appendLine(lineOf("222", 5))
+        history.appendLine(lineOf("333", 5))
 
-        history.appendLine(lineOf("444", 5))
-        history.appendLine(lineOf("555", 5))
+        val replacement = lineOf("abc", 5)
+        history.setLine(1, replacement)
 
+        assertSame(replacement, history.getLine(1))
         assertEquals(
-            listOf("111  ", "222  ", "333  ", "444  ", "555  "),
+            listOf("111  ", "abc  ", "333  "),
             history.lines().map { it.asPlainString() }
         )
     }
@@ -76,9 +64,8 @@ abstract class LineHistoryContractTest {
         val history = createLineHistory(width = 5, height = 2, scrollbackMaxSize = 2)
         // capacity = 4
 
-        history.setLine(0, lineOf("A", 5))
-        history.setLine(1, lineOf("B", 5))
-
+        history.appendLine(lineOf("A", 5))
+        history.appendLine(lineOf("B", 5))
         history.appendLine(lineOf("C", 5))
         history.appendLine(lineOf("D", 5))
         history.appendLine(lineOf("E", 5))
@@ -91,12 +78,11 @@ abstract class LineHistoryContractTest {
     }
 
     @Test
-    fun keepsOnlyVisibleScreenWhenScrollbackSizeIsZero() {
+    fun keepsOnlyScreenHeightLinesWhenScrollbackSizeIsZero() {
         val history = createLineHistory(width = 4, height = 2, scrollbackMaxSize = 0)
 
-        history.setLine(0, lineOf("A", 4))
-        history.setLine(1, lineOf("B", 4))
-
+        history.appendLine(lineOf("A", 4))
+        history.appendLine(lineOf("B", 4))
         history.appendLine(lineOf("C", 4))
         history.appendLine(lineOf("D", 4))
 
@@ -105,18 +91,82 @@ abstract class LineHistoryContractTest {
     }
 
     @Test
-    fun clearResetsToExactlyBlankScreenHeightLines() {
+    fun linesReturnsLinesInLogicalOrderAfterWrapAround() {
+        val history = createLineHistory(width = 4, height = 2, scrollbackMaxSize = 2)
+        // capacity = 4
+
+        history.appendLine(lineOf("A", 4))
+        history.appendLine(lineOf("B", 4))
+        history.appendLine(lineOf("C", 4))
+        history.appendLine(lineOf("D", 4))
+        history.appendLine(lineOf("E", 4))
+        history.appendLine(lineOf("F", 4))
+
+        assertEquals(
+            listOf("C   ", "D   ", "E   ", "F   "),
+            history.lines().map { it.asPlainString() }
+        )
+    }
+
+    @Test
+    fun getLineReturnsLogicalOrderAfterWrapAround() {
+        val history = createLineHistory(width = 4, height = 2, scrollbackMaxSize = 2)
+
+        history.appendLine(lineOf("A", 4))
+        history.appendLine(lineOf("B", 4))
+        history.appendLine(lineOf("C", 4))
+        history.appendLine(lineOf("D", 4))
+        history.appendLine(lineOf("E", 4))
+
+        assertEquals("B   ", history.getLine(0).asPlainString())
+        assertEquals("C   ", history.getLine(1).asPlainString())
+        assertEquals("D   ", history.getLine(2).asPlainString())
+        assertEquals("E   ", history.getLine(3).asPlainString())
+    }
+
+    @Test
+    fun setLineWorksAfterWrapAround() {
+        val history = createLineHistory(width = 4, height = 2, scrollbackMaxSize = 2)
+
+        history.appendLine(lineOf("A", 4))
+        history.appendLine(lineOf("B", 4))
+        history.appendLine(lineOf("C", 4))
+        history.appendLine(lineOf("D", 4))
+        history.appendLine(lineOf("E", 4))
+
+        val replacement = lineOf("XX", 4)
+        history.setLine(1, replacement)
+
+        assertSame(replacement, history.getLine(1))
+        assertEquals(
+            listOf("B   ", "XX  ", "D   ", "E   "),
+            history.lines().map { it.asPlainString() }
+        )
+    }
+
+    @Test
+    fun clearRemovesAllLines() {
         val history = createLineHistory(width = 4, height = 3, scrollbackMaxSize = 2)
 
-        history.setLine(0, lineOf("A", 4))
-        history.setLine(1, lineOf("B", 4))
-        history.setLine(2, lineOf("C", 4))
+        history.appendLine(lineOf("A", 4))
+        history.appendLine(lineOf("B", 4))
+        history.appendLine(lineOf("C", 4))
         history.appendLine(lineOf("D", 4))
 
         history.clear()
 
-        assertEquals(3, history.size)
-        assertEquals(listOf("    ", "    ", "    "), history.lines().map { it.asPlainString() })
+        assertEquals(0, history.size)
+        assertEquals(emptyList(), history.lines())
+    }
+
+    @Test
+    fun clearCanBeCalledOnEmptyHistory() {
+        val history = createLineHistory(width = 4, height = 2, scrollbackMaxSize = 2)
+
+        history.clear()
+
+        assertEquals(0, history.size)
+        assertEquals(emptyList(), history.lines())
     }
 
     @Test
@@ -131,15 +181,17 @@ abstract class LineHistoryContractTest {
     @Test
     fun getLineFailsForIndexPastSize() {
         val history = createLineHistory(width = 5, height = 3, scrollbackMaxSize = 2)
+        history.appendLine(lineOf("A", 5))
 
         assertFailsWith<IllegalArgumentException> {
-            history.getLine(3)
+            history.getLine(1)
         }
     }
 
     @Test
     fun setLineFailsForNegativeIndex() {
         val history = createLineHistory(width = 5, height = 3, scrollbackMaxSize = 2)
+        history.appendLine(lineOf("A", 5))
 
         assertFailsWith<IllegalArgumentException> {
             history.setLine(-1, lineOf("abc", 5))
@@ -149,18 +201,20 @@ abstract class LineHistoryContractTest {
     @Test
     fun setLineFailsForIndexPastSize() {
         val history = createLineHistory(width = 5, height = 3, scrollbackMaxSize = 2)
+        history.appendLine(lineOf("A", 5))
 
         assertFailsWith<IllegalArgumentException> {
-            history.setLine(3, lineOf("abc", 5))
+            history.setLine(1, lineOf("abc", 5))
         }
     }
 
     @Test
     fun setLineFailsForWrongWidth() {
         val history = createLineHistory(width = 5, height = 3, scrollbackMaxSize = 2)
+        history.appendLine(lineOf("A", 5))
 
         assertFailsWith<IllegalArgumentException> {
-            history.setLine(1, lineOf("abc", 4))
+            history.setLine(0, lineOf("abc", 4))
         }
     }
 
