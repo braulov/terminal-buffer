@@ -1,11 +1,6 @@
 package org.example
 
-import org.example.model.Attributes
-import org.example.model.Cell
-import org.example.model.Cursor
-import org.example.model.Line
-import org.example.model.MoveType
-import org.example.model.Position
+import org.example.model.*
 import org.example.storage.LineHistory
 import org.example.storage.RingLineHistory
 
@@ -14,61 +9,77 @@ class TerminalBuffer(
     private var height: Int,
     private var scrollbackMaxSize: Int
 ) {
+
     init {
-        require(width > 0) { "Width must be positive" }
-        require(height > 0) { "Height must be positive" }
-        require(scrollbackMaxSize >= 0) { "Scrollback max size must be non-negative" }
+        require(width > 0)
+        require(height > 0)
+        require(scrollbackMaxSize >= 0)
     }
 
-    private var attributes: Attributes = Attributes()
-    private var cursor: Cursor = Cursor()
+    private var attributes = Attributes()
+    private var cursor = Cursor()
     private var history: LineHistory = RingLineHistory(width, height, scrollbackMaxSize)
-    private var virtualBlankScreenRows: Int = 0
 
-    fun setAttributes(
-        foregroundColor: Int,
-        backgroundColor: Int,
-        style: Int
-    ) {
-        attributes = Attributes(foregroundColor, backgroundColor, style)
-    }
+    private var virtualBlankScreenRows = 0
+
+    // ================= CURSOR =================
 
     fun getCursorPosition(): Position = cursor.getPosition()
 
     fun setCursorPosition(position: Position) {
-        val clampedColumn = position.column.coerceIn(0, width - 1)
-        val clampedRow = position.row.coerceIn(0, height - 1)
-        cursor.setPosition(Position(clampedColumn, clampedRow))
+        val col = position.column.coerceIn(0, width - 1)
+        val row = position.row.coerceIn(0, height - 1)
+        cursor.setPosition(Position(col, row))
     }
 
     fun moveCursor(type: MoveType, count: Int = 1) {
-        require(count >= 0) { "Count must be non-negative" }
+        require(count >= 0)
 
-        val current = cursor.getPosition()
-        val newPosition = when (type) {
-            MoveType.UP -> Position(current.column, (current.row - count).coerceAtLeast(0))
-            MoveType.DOWN -> Position(current.column, (current.row + count).coerceAtMost(height - 1))
-            MoveType.LEFT -> Position((current.column - count).coerceAtLeast(0), current.row)
-            MoveType.RIGHT -> Position((current.column + count).coerceAtMost(width - 1), current.row)
+        val p = cursor.getPosition()
+        val newPos = when (type) {
+            MoveType.UP -> Position(p.column, (p.row - count).coerceAtLeast(0))
+            MoveType.DOWN -> Position(p.column, (p.row + count).coerceAtMost(height - 1))
+            MoveType.LEFT -> Position((p.column - count).coerceAtLeast(0), p.row)
+            MoveType.RIGHT -> Position((p.column + count).coerceAtMost(width - 1), p.row)
         }
-        cursor.setPosition(newPosition)
+        cursor.setPosition(newPos)
     }
 
-    fun writeText(text: String): Nothing = TODO()
-    fun insertText(text: String): Nothing = TODO()
-    fun fillLine(row: Int, char: Char?): Nothing = TODO()
+    // ================= WRITE =================
+
+    fun writeText(text: String) {
+        if (text.isEmpty()) return
+
+        val pos = cursor.getPosition()
+        val line = ensureWritableScreenLine(pos.row)
+
+        var column = pos.column
+        var written = 0
+
+        for (ch in text) {
+            if (column >= width) break
+            line.cells[column] = Cell(ch, attributes)
+            column++
+            written++
+        }
+
+        val newColumn = (pos.column + written).coerceAtMost(width - 1)
+        cursor.setPosition(Position(newColumn, pos.row))
+    }
+
+    // ================= SCREEN OPS =================
 
     fun insertEmptyLineAtBottom() {
-        consumeOneVirtualBlankRowIfPresent()
+        consumeVirtualRowIfPresent()
         history.appendLine(blankLine())
     }
 
     fun clearScreen() {
-        val preservedScrollbackSize = scrollbackSize()
-        val newHistory = RingLineHistory(width, height, scrollbackMaxSize)
+        val preservedScrollback = scrollbackSize()
 
-        for (i in 0 until preservedScrollbackSize) {
-            newHistory.appendLine(history.getLine(i))
+        val newHistory = RingLineHistory(width, height, scrollbackMaxSize)
+        repeat(preservedScrollback) {
+            newHistory.appendLine(history.getLine(it))
         }
 
         history = newHistory
@@ -82,70 +93,64 @@ class TerminalBuffer(
         cursor = Cursor()
     }
 
-    fun getChar(position: Position): Char? {
-        require(position.column in 0 until width) {
-            "Column ${position.column} is out of bounds for width $width"
-        }
-        val line = getLineObject(position.row)
-        return line.cells[position.column].character
-    }
+    // ================= READ =================
 
-    fun getAttributes(position: Position): Attributes {
-        require(position.column in 0 until width) {
-            "Column ${position.column} is out of bounds for width $width"
-        }
-        val line = getLineObject(position.row)
-        return line.cells[position.column].attributes
-    }
-
-    fun getLine(row: Int): String {
-        require(row >= 0) { "Row must be non-negative" }
-        require(row < totalVisibleRows()) {
-            "Row $row is out of bounds for total rows ${totalVisibleRows()}"
-        }
-        return getLineObject(row).asPlainString()
-    }
-
-    fun getScreen(): String {
-        return screenLines().joinToString("\n") { it.asPlainString() }
-    }
+    fun getScreen(): String =
+        screenLines().joinToString("\n") { it.asPlainString() }
 
     fun getScreenAndScrollback(): String {
         val lines = mutableListOf<Line>()
-
-        for (i in 0 until scrollbackSize()) {
-            lines.add(history.getLine(i))
+        repeat(scrollbackSize()) {
+            lines.add(history.getLine(it))
         }
         lines.addAll(screenLines())
-
         return lines.joinToString("\n") { it.asPlainString() }
     }
 
-    fun resize(width: Int, height: Int): Nothing = TODO()
+    fun getLine(row: Int): String =
+        screenLines()[row].asPlainString()
 
-    // Temporary helper for tests before writeText is implemented.
-    fun appendLineForTest(text: String) {
-        consumeOneVirtualBlankRowIfPresent()
-        history.appendLine(lineOf(text))
+    // ================= INTERNAL =================
+
+    private fun ensureWritableScreenLine(screenRow: Int): Line {
+        require(screenRow in 0 until height)
+
+        val blankLines = blankScreenLineCount()
+
+        return if (screenRow < blankLines) {
+            val toMaterialize = blankLines - screenRow
+
+            repeat(toMaterialize) {
+                history.appendLine(blankLine())
+                consumeVirtualRowIfPresent()
+            }
+
+            history.getLine(history.size - realScreenLineCount())
+        } else {
+            val idx = screenStartIndex() + (screenRow - blankLines)
+            history.getLine(idx)
+        }
     }
 
-    private fun consumeOneVirtualBlankRowIfPresent() {
-        if (virtualBlankScreenRows > 0) {
-            virtualBlankScreenRows--
-        }
+    private fun consumeVirtualRowIfPresent() {
+        if (virtualBlankScreenRows > 0) virtualBlankScreenRows--
     }
 
     private fun totalVisibleRows(): Int = scrollbackSize() + height
 
     private fun realScreenCapacity(): Int = height - virtualBlankScreenRows
 
-    private fun realScreenLineCount(): Int = minOf(history.size, realScreenCapacity())
+    private fun realScreenLineCount(): Int =
+        minOf(history.size, realScreenCapacity())
 
-    private fun scrollbackSize(): Int = history.size - realScreenLineCount()
+    private fun scrollbackSize(): Int =
+        history.size - realScreenLineCount()
 
-    private fun blankScreenLineCount(): Int = height - realScreenLineCount()
+    private fun blankScreenLineCount(): Int =
+        height - realScreenLineCount()
 
-    private fun screenStartIndex(): Int = scrollbackSize()
+    private fun screenStartIndex(): Int =
+        scrollbackSize()
 
     private fun screenLines(): List<Line> {
         val result = mutableListOf<Line>()
@@ -161,26 +166,7 @@ class TerminalBuffer(
         return result
     }
 
-    private fun getLineObject(globalRow: Int): Line {
-        val scrollbackSize = scrollbackSize()
-
-        return if (globalRow < scrollbackSize) {
-            history.getLine(globalRow)
-        } else {
-            val screenRow = globalRow - scrollbackSize
-            screenLines()[screenRow]
-        }
-    }
-
     private fun blankLine(): Line =
         Line(MutableList(width) { Cell() })
 
-    private fun lineOf(text: String): Line {
-        val cells = MutableList(width) { Cell() }
-        for (i in text.indices) {
-            if (i >= width) break
-            cells[i] = Cell(text[i], attributes)
-        }
-        return Line(cells)
-    }
 }
