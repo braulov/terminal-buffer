@@ -55,17 +55,21 @@ class TerminalBuffer(
     }
 
     fun writeText(text: String) {
-        var lineClipped = false
+        var wrapPending = false
 
         for (ch in text) {
             if (ch == '\n') {
                 moveToNextLine()
-                lineClipped = false
-            } else {
-                if (!lineClipped) {
-                    lineClipped = !writeChar(ch)
-                }
+                wrapPending = false
+                continue
             }
+
+            if (wrapPending) {
+                moveToNextLine()
+                wrapPending = false
+            }
+
+            wrapPending = writeCharAndCheckWrap(ch)
         }
     }
 
@@ -143,19 +147,16 @@ class TerminalBuffer(
         history.appendLine(lineOf(text))
     }
 
-    private fun writeChar(ch: Char): Boolean {
+    private fun writeCharAndCheckWrap(ch: Char): Boolean {
         val pos = cursor.getPosition()
-
-        if (pos.column !in 0 until width) return false
-
         val line = ensureWritableScreenLine(pos.row)
         line.cells[pos.column] = Cell(ch, attributes)
 
         return if (pos.column < width - 1) {
             cursor.setPosition(Position(pos.column + 1, pos.row))
-            true
-        } else {
             false
+        } else {
+            true
         }
     }
 

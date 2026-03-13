@@ -265,14 +265,14 @@ class TerminalBufferTest {
     }
 
     @Test
-    fun writeTextClipsAtLineEnd() {
+    fun writeTextWrapsAtLineEnd() {
         val buffer = TerminalBuffer(5, 2, 10)
 
         buffer.setCursorPosition(Position(3, 0))
         buffer.writeText("abcdef")
 
         assertEquals(
-            "   ab\n     ",
+            "   ab\ncdef ",
             buffer.getScreen()
         )
     }
@@ -336,6 +336,18 @@ class TerminalBufferTest {
         assertEquals(
             "A   \n    \nB   ",
             buffer.getScreenAndScrollback()
+        )
+    }
+
+    @Test
+    fun wrapCanScrollScreen() {
+        val buffer = TerminalBuffer(4, 2, 10)
+
+        buffer.writeText("123456789")
+
+        assertEquals(
+            "5678\n9   ",
+            buffer.getScreen()
         )
     }
 }
