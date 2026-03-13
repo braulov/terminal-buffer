@@ -4,6 +4,7 @@ import org.example.model.MoveType
 import org.example.model.Position
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 class TerminalBufferTest {
 
@@ -349,5 +350,79 @@ class TerminalBufferTest {
             "5678\n9   ",
             buffer.getScreen()
         )
+    }
+
+    @Test
+    fun fillLineFillsVisibleRowWithCharacter() {
+        val buffer = TerminalBuffer(width = 5, height = 3, scrollbackMaxSize = 10)
+
+        buffer.fillLine(1, 'x')
+
+        assertEquals(
+            "     \nxxxxx\n     ",
+            buffer.getScreen()
+        )
+    }
+
+    @Test
+    fun fillLineMaterializesVirtualRow() {
+        val buffer = TerminalBuffer(width = 4, height = 3, scrollbackMaxSize = 10)
+
+        buffer.appendLineForTest("AA")
+        buffer.fillLine(0, 'z')
+
+        assertEquals(
+            "zzzz\n    \nAA  ",
+            buffer.getScreen()
+        )
+    }
+
+    @Test
+    fun fillLineCanClearRowWithNullCharacter() {
+        val buffer = TerminalBuffer(width = 5, height = 2, scrollbackMaxSize = 10)
+
+        buffer.writeText("hello")
+        buffer.fillLine(0, null)
+
+        assertEquals(
+            "     \n     ",
+            buffer.getScreen()
+        )
+    }
+
+    @Test
+    fun fillLineUsesCurrentAttributes() {
+        val buffer = TerminalBuffer(width = 3, height = 2, scrollbackMaxSize = 10)
+
+        buffer.setAttributes(
+            foregroundColor = 1,
+            backgroundColor = 2,
+            style = 4
+        )
+
+        buffer.fillLine(1, 'a')
+
+        assertEquals('a', buffer.getChar(Position(0, 1)))
+        assertEquals(
+            org.example.model.Attributes(
+                foregroundColor = 1,
+                backgroundColor = 2,
+                style = 4
+            ),
+            buffer.getAttributes(Position(0, 1))
+        )
+    }
+
+    @Test
+    fun fillLineFailsForRowOutsideScreen() {
+        val buffer = TerminalBuffer(width = 5, height = 2, scrollbackMaxSize = 10)
+
+        assertFailsWith<IllegalArgumentException> {
+            buffer.fillLine(-1, 'x')
+        }
+
+        assertFailsWith<IllegalArgumentException> {
+            buffer.fillLine(2, 'x')
+        }
     }
 }

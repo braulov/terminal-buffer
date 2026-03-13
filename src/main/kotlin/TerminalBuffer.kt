@@ -75,7 +75,18 @@ class TerminalBuffer(
 
     fun insertText(text: String): Nothing = TODO()
 
-    fun fillLine(row: Int, char: Char?): Nothing = TODO()
+    fun fillLine(row: Int, char: Char?) {
+        require(row in 0 until height) {
+            "Row $row is out of bounds for screen height $height"
+        }
+
+        val line = ensureWritableScreenLine(row)
+        val cell = Cell(char, attributes)
+
+        for (i in 0 until width) {
+            line.cells[i] = cell
+        }
+    }
 
     fun insertEmptyLineAtBottom() {
         consumeOneVirtualBlankRowIfPresent()
@@ -174,21 +185,30 @@ class TerminalBuffer(
     private fun ensureWritableScreenLine(screenRow: Int): Line {
         require(screenRow in 0 until height)
 
-        val blankLines = blankScreenLineCount()
-
-        return if (screenRow < blankLines) {
-            val toMaterialize = blankLines - screenRow
-
-            repeat(toMaterialize) {
-                consumeOneVirtualBlankRowIfPresent()
-                history.appendLine(blankLine())
-            }
-
-            history.getLine(history.size - realScreenLineCount())
-        } else {
-            val index = screenStartIndex() + (screenRow - blankLines)
-            history.getLine(index)
+        if (virtualBlankScreenRows > 0 || blankScreenLineCount() > 0) {
+            materializeScreenView()
         }
+
+        return history.getLine(scrollbackSize() + screenRow)
+    }
+
+    private fun materializeScreenView() {
+        val newHistory = RingLineHistory(width, height, scrollbackMaxSize)
+
+        for (i in 0 until scrollbackSize()) {
+            newHistory.appendLine(history.getLine(i))
+        }
+
+        for (line in screenLines()) {
+            newHistory.appendLine(copyLine(line))
+        }
+
+        history = newHistory
+        virtualBlankScreenRows = 0
+    }
+
+    private fun copyLine(line: Line): Line {
+        return Line(line.cells.toMutableList())
     }
 
     private fun consumeOneVirtualBlankRowIfPresent() {
@@ -224,12 +244,12 @@ class TerminalBuffer(
     }
 
     private fun getLineObject(globalRow: Int): Line {
-        val scrollbackSize = scrollbackSize()
+        val scrollback = scrollbackSize()
 
-        return if (globalRow < scrollbackSize) {
+        return if (globalRow < scrollback) {
             history.getLine(globalRow)
         } else {
-            val screenRow = globalRow - scrollbackSize
+            val screenRow = globalRow - scrollback
             screenLines()[screenRow]
         }
     }
