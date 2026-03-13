@@ -1,5 +1,6 @@
 package org.example
 
+import org.example.model.Attributes
 import org.example.model.MoveType
 import org.example.model.Position
 import kotlin.test.Test
@@ -404,7 +405,7 @@ class TerminalBufferTest {
 
         assertEquals('a', buffer.getChar(Position(0, 1)))
         assertEquals(
-            org.example.model.Attributes(
+            Attributes(
                 foregroundColor = 1,
                 backgroundColor = 2,
                 style = 4
@@ -423,6 +424,99 @@ class TerminalBufferTest {
 
         assertFailsWith<IllegalArgumentException> {
             buffer.fillLine(2, 'x')
+        }
+    }
+
+    @Test
+    fun getCharReturnsCharacterFromVisibleScreen() {
+        val buffer = TerminalBuffer(width = 5, height = 2, scrollbackMaxSize = 10)
+
+        buffer.writeText("abc")
+
+        assertEquals('a', buffer.getChar(Position(0, 0)))
+        assertEquals('b', buffer.getChar(Position(1, 0)))
+        assertEquals('c', buffer.getChar(Position(2, 0)))
+        assertEquals(null, buffer.getChar(Position(3, 0)))
+    }
+
+    @Test
+    fun getCharReturnsCharacterFromScrollback() {
+        val buffer = TerminalBuffer(width = 4, height = 2, scrollbackMaxSize = 10)
+
+        buffer.writeText("111\n222\n333")
+
+        assertEquals('1', buffer.getChar(Position(0, 0)))
+        assertEquals('2', buffer.getChar(Position(0, 1)))
+        assertEquals('3', buffer.getChar(Position(0, 2)))
+    }
+
+    @Test
+    fun getAttributesReturnsDefaultAttributesForEmptyVirtualRow() {
+        val buffer = TerminalBuffer(width = 5, height = 3, scrollbackMaxSize = 10)
+
+        assertEquals(
+            Attributes(),
+            buffer.getAttributes(Position(0, 0))
+        )
+    }
+
+    @Test
+    fun writeTextUsesCurrentAttributes() {
+        val buffer = TerminalBuffer(width = 5, height = 2, scrollbackMaxSize = 10)
+
+        buffer.setAttributes(
+            foregroundColor = 1,
+            backgroundColor = 2,
+            style = 4
+        )
+        buffer.writeText("ab")
+
+        assertEquals(
+            Attributes(1, 2, 4),
+            buffer.getAttributes(Position(0, 0))
+        )
+        assertEquals(
+            Attributes(1, 2, 4),
+            buffer.getAttributes(Position(1, 0))
+        )
+    }
+
+    @Test
+    fun getCharFailsForColumnOutsideBounds() {
+        val buffer = TerminalBuffer(width = 4, height = 2, scrollbackMaxSize = 10)
+
+        assertFailsWith<IllegalArgumentException> {
+            buffer.getChar(Position(-1, 0))
+        }
+
+        assertFailsWith<IllegalArgumentException> {
+            buffer.getChar(Position(4, 0))
+        }
+    }
+
+    @Test
+    fun getAttributesFailsForColumnOutsideBounds() {
+        val buffer = TerminalBuffer(width = 4, height = 2, scrollbackMaxSize = 10)
+
+        assertFailsWith<IllegalArgumentException> {
+            buffer.getAttributes(Position(-1, 0))
+        }
+
+        assertFailsWith<IllegalArgumentException> {
+            buffer.getAttributes(Position(4, 0))
+        }
+    }
+
+    @Test
+    fun getLineFailsForRowOutsideVisibleArea() {
+        val buffer = TerminalBuffer(width = 4, height = 2, scrollbackMaxSize = 10)
+
+        assertFailsWith<IllegalArgumentException> {
+            buffer.getLine(-1)
+        }
+
+        assertFailsWith<IllegalArgumentException> {
+            buffer.getLine(2)
         }
     }
 }
