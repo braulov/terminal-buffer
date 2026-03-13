@@ -3,8 +3,7 @@ package org.example
 import org.example.model.Attributes
 import org.example.model.Position
 import org.example.model.Cursor
-import org.example.storage.ScreenBuffer
-import org.example.storage.ScrollbackBuffer
+import org.example.storage.LineHistory
 
 class TerminalBuffer(
     private var width: Int,
@@ -19,8 +18,7 @@ class TerminalBuffer(
 
     private var attributes: Attributes = Attributes()
     private var cursor: Cursor = Cursor()
-    private var screen: ScreenBuffer = TODO()
-    private var scrollback: ScrollbackBuffer = TODO()
+    private var history: LineHistory = TODO()
     fun setAttributes(
         foregroundColor: Int,
         backgroundColor: Int,
@@ -47,4 +45,7 @@ class TerminalBuffer(
     fun getScreen(): String = TODO()
     fun getScreenAndScrollback(): String = TODO()
     fun resize(width: Int, height: Int): Nothing = TODO()
+
+    private fun screenStartIndex(): Int = maxOf(0,history.size - height)
+    private fun scrollbackSize(): Int = screenStartIndex()
 }
