@@ -4,6 +4,7 @@ import org.example.model.Attributes
 import org.example.model.Cell
 import org.example.model.Cursor
 import org.example.model.Line
+import org.example.model.LineBreakType
 import org.example.model.MoveType
 import org.example.model.Position
 import org.example.storage.LineHistory
@@ -56,20 +57,29 @@ class TerminalBuffer(
 
     fun writeText(text: String) {
         var wrapPending = false
+        var lastWrittenRow: Int? = null
 
         for (ch in text) {
             if (ch == '\n') {
+                if (lastWrittenRow != null) {
+                    ensureWritableScreenLine(lastWrittenRow).lineBreakType = LineBreakType.HARD
+                }
                 moveToNextLine()
                 wrapPending = false
                 continue
             }
 
             if (wrapPending) {
+                if (lastWrittenRow != null) {
+                    ensureWritableScreenLine(lastWrittenRow).lineBreakType = LineBreakType.SOFT
+                }
                 moveToNextLine()
                 wrapPending = false
             }
 
+            val row = cursor.getPosition().row
             wrapPending = writeCharAndCheckWrap(ch)
+            lastWrittenRow = row
         }
     }
 
@@ -78,7 +88,6 @@ class TerminalBuffer(
 
         var row = cursor.getPosition().row
         var column = cursor.getPosition().column
-
         val currentSegment = StringBuilder()
 
         fun flushSegment() {
@@ -96,12 +105,8 @@ class TerminalBuffer(
             column = totalOffset % width
 
             if (row >= height) {
-                val overflowRows = row - (height - 1)
-                repeat(overflowRows) {
-                    consumeOneVirtualBlankRowIfPresent()
-                    history.appendLine(blankLine())
-                }
                 row = height - 1
+                column = minOf(column, width - 1)
             }
 
             currentSegment.clear()
@@ -110,12 +115,11 @@ class TerminalBuffer(
         for (ch in text) {
             if (ch == '\n') {
                 flushSegment()
+                ensureWritableScreenLine(row).lineBreakType = LineBreakType.HARD
                 column = 0
                 if (row < height - 1) {
                     row++
                 } else {
-                    consumeOneVirtualBlankRowIfPresent()
-                    history.appendLine(blankLine())
                     row = height - 1
                 }
             } else {
@@ -124,7 +128,7 @@ class TerminalBuffer(
         }
 
         flushSegment()
-        cursor.setPosition(Position(column, row))
+        cursor.setPosition(Position(column.coerceIn(0, width - 1), row.coerceIn(0, height - 1)))
     }
 
     fun fillLine(row: Int, char: Char?) {
@@ -138,6 +142,7 @@ class TerminalBuffer(
         for (i in 0 until width) {
             line.cells[i] = cell
         }
+        line.lineBreakType = LineBreakType.NONE
     }
 
     fun insertEmptyLineAtBottom() {
@@ -150,7 +155,7 @@ class TerminalBuffer(
         val newHistory = RingLineHistory(width, height, scrollbackMaxSize)
 
         for (i in 0 until preservedScrollbackSize) {
-            newHistory.appendLine(history.getLine(i))
+            newHistory.appendLine(copyLine(history.getLine(i)))
         }
 
         history = newHistory
@@ -194,16 +199,42 @@ class TerminalBuffer(
 
     fun getScreenAndScrollback(): String {
         val lines = mutableListOf<Line>()
-
         for (i in 0 until scrollbackSize()) {
             lines.add(history.getLine(i))
         }
         lines.addAll(screenLines())
-
         return lines.joinToString("\n") { it.asPlainString() }
     }
 
-    fun resize(width: Int, height: Int): Nothing = TODO()
+    fun resize(width: Int, height: Int) {
+        require(width > 0) { "Width must be positive" }
+        require(height > 0) { "Height must be positive" }
+
+        val logicalLines = collectLogicalLines()
+        val reflowedLines = logicalLines.flatMap { (cells, breakType) ->
+            reflowLogicalLine(cells, breakType, width)
+        }
+
+        val newHistory = RingLineHistory(width, height, scrollbackMaxSize)
+        for (line in reflowedLines) {
+            newHistory.appendLine(line)
+        }
+
+        this.width = width
+        this.height = height
+        this.history = newHistory
+
+        val visibleRealLines = minOf(newHistory.size, height)
+        virtualBlankScreenRows = height - visibleRealLines
+
+        val cursorPos = cursor.getPosition()
+        setCursorPosition(
+            Position(
+                cursorPos.column.coerceIn(0, width - 1),
+                cursorPos.row.coerceIn(0, height - 1)
+            )
+        )
+    }
 
     fun appendLineForTest(text: String) {
         consumeOneVirtualBlankRowIfPresent()
@@ -220,20 +251,6 @@ class TerminalBuffer(
             false
         } else {
             true
-        }
-    }
-
-    private fun trimTrailingBlankCells(cells: List<Cell>): List<Cell> {
-        var lastNonBlank = cells.size - 1
-
-        while (lastNonBlank >= 0 && cells[lastNonBlank].character == null) {
-            lastNonBlank--
-        }
-
-        return if (lastNonBlank < 0) {
-            emptyList()
-        } else {
-            cells.subList(0, lastNonBlank + 1)
         }
     }
 
@@ -270,6 +287,7 @@ class TerminalBuffer(
             }
 
             if (carry.isNotEmpty()) {
+                line.lineBreakType = LineBreakType.SOFT
                 insertionColumn = 0
                 if (row < height - 1) {
                     row++
@@ -308,7 +326,7 @@ class TerminalBuffer(
         val newHistory = RingLineHistory(width, height, scrollbackMaxSize)
 
         for (i in 0 until currentScrollbackSize) {
-            newHistory.appendLine(history.getLine(i))
+            newHistory.appendLine(copyLine(history.getLine(i)))
         }
 
         for (line in currentScreen) {
@@ -319,8 +337,72 @@ class TerminalBuffer(
         virtualBlankScreenRows = 0
     }
 
+    private fun collectLogicalLines(): List<Pair<List<Cell>, LineBreakType>> {
+        val result = mutableListOf<Pair<List<Cell>, LineBreakType>>()
+        var current = mutableListOf<Cell>()
+
+        for (line in history.lines()) {
+            current.addAll(trimTrailingBlankCells(line.cells))
+
+            when (line.lineBreakType) {
+                LineBreakType.SOFT -> {}
+                LineBreakType.HARD -> {
+                    result.add(current.toList() to LineBreakType.HARD)
+                    current = mutableListOf()
+                }
+                LineBreakType.NONE -> {
+                    result.add(current.toList() to LineBreakType.NONE)
+                    current = mutableListOf()
+                }
+            }
+        }
+
+        if (current.isNotEmpty()) {
+            result.add(current.toList() to LineBreakType.NONE)
+        }
+
+        return result
+    }
+
+    private fun reflowLogicalLine(
+        cells: List<Cell>,
+        finalBreakType: LineBreakType,
+        newWidth: Int
+    ): List<Line> {
+        if (cells.isEmpty()) {
+            return listOf(Line(MutableList(newWidth) { Cell() }, finalBreakType))
+        }
+
+        val result = mutableListOf<Line>()
+        var index = 0
+
+        while (index < cells.size) {
+            val end = minOf(index + newWidth, cells.size)
+            val chunk = cells.subList(index, end)
+
+            val lineCells = MutableList(newWidth) { Cell() }
+            for (i in chunk.indices) {
+                lineCells[i] = chunk[i]
+            }
+
+            val breakType = if (end < cells.size) LineBreakType.SOFT else finalBreakType
+            result.add(Line(lineCells, breakType))
+            index = end
+        }
+
+        return result
+    }
+
     private fun copyLine(line: Line): Line {
-        return Line(line.cells.toMutableList())
+        return Line(line.cells.toMutableList(), line.lineBreakType)
+    }
+
+    private fun trimTrailingBlankCells(cells: List<Cell>): List<Cell> {
+        var lastNonBlank = cells.size - 1
+        while (lastNonBlank >= 0 && cells[lastNonBlank].character == null) {
+            lastNonBlank--
+        }
+        return if (lastNonBlank < 0) emptyList() else cells.subList(0, lastNonBlank + 1)
     }
 
     private fun consumeOneVirtualBlankRowIfPresent() {
@@ -357,7 +439,6 @@ class TerminalBuffer(
 
     private fun getLineObject(globalRow: Int): Line {
         val scrollback = scrollbackSize()
-
         return if (globalRow < scrollback) {
             history.getLine(globalRow)
         } else {
@@ -367,7 +448,7 @@ class TerminalBuffer(
     }
 
     private fun blankLine(): Line =
-        Line(MutableList(width) { Cell() })
+        Line(MutableList(width) { Cell() }, LineBreakType.NONE)
 
     private fun lineOf(text: String): Line {
         val cells = MutableList(width) { Cell() }
@@ -375,6 +456,6 @@ class TerminalBuffer(
             if (i >= width) break
             cells[i] = Cell(text[i], attributes)
         }
-        return Line(cells)
+        return Line(cells, LineBreakType.NONE)
     }
 }

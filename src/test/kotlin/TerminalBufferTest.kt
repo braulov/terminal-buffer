@@ -623,6 +623,7 @@ class TerminalBufferTest {
             buffer.getScreen()
         )
     }
+
     @Test
     fun insertTextDropsOverflowPastLastVisibleRow() {
         val buffer = TerminalBuffer(width = 4, height = 2, scrollbackMaxSize = 10)
@@ -636,6 +637,7 @@ class TerminalBufferTest {
             buffer.getScreen()
         )
     }
+
     @Test
     fun insertTextMaterializesVirtualRow() {
         val buffer = TerminalBuffer(width = 5, height = 3, scrollbackMaxSize = 10)
@@ -650,4 +652,83 @@ class TerminalBufferTest {
         )
     }
 
+    @Test
+    fun resizeToSmallerWidthReflowsEachLineIndependently() {
+        val buffer = TerminalBuffer(width = 5, height = 2, scrollbackMaxSize = 10)
+
+        buffer.writeText("abcde\n12345")
+        buffer.resize(width = 3, height = 2)
+
+        assertEquals(
+            "123\n45 ",
+            buffer.getScreen()
+        )
+
+        assertEquals(
+            "abc\nde \n123\n45 ",
+            buffer.getScreenAndScrollback()
+        )
+    }
+
+    @Test
+    fun resizeToLargerWidthMergesWrappedSegmentsOfEachLogicalLine() {
+        val buffer = TerminalBuffer(width = 3, height = 4, scrollbackMaxSize = 10)
+
+        buffer.writeText("abcde\n12345")
+        buffer.resize(width = 5, height = 2)
+
+        assertEquals(
+            "abcde\n12345",
+            buffer.getScreen()
+        )
+    }
+
+    @Test
+    fun resizeToSmallerHeightKeepsLastVisibleReflowedLines() {
+        val buffer = TerminalBuffer(width = 4, height = 3, scrollbackMaxSize = 10)
+
+        buffer.writeText("AAAA\nBBBB\nCCCC")
+        buffer.resize(width = 2, height = 2)
+
+        assertEquals(
+            "CC\nCC",
+            buffer.getScreen()
+        )
+    }
+
+    @Test
+    fun resizeToLargerHeightAddsBlankRowsAboveReflowedContent() {
+        val buffer = TerminalBuffer(width = 4, height = 2, scrollbackMaxSize = 10)
+
+        buffer.writeText("AAAA\nBBBB")
+        buffer.resize(width = 4, height = 4)
+
+        assertEquals(
+            "    \n    \nAAAA\nBBBB",
+            buffer.getScreen()
+        )
+    }
+
+    @Test
+    fun resizeClampsCursorToNewBounds() {
+        val buffer = TerminalBuffer(width = 5, height = 4, scrollbackMaxSize = 10)
+
+        buffer.setCursorPosition(Position(4, 3))
+        buffer.resize(width = 3, height = 2)
+
+        assertEquals(Position(2, 1), buffer.getCursorPosition())
+    }
+
+    @Test
+    fun resizePreservesScrollbackContent() {
+        val buffer = TerminalBuffer(width = 4, height = 2, scrollbackMaxSize = 10)
+
+        buffer.writeText("1111\n2222\n3333")
+        buffer.resize(width = 4, height = 2)
+
+        assertEquals(
+            "1111\n2222\n3333",
+            buffer.getScreenAndScrollback()
+        )
+    }
 }

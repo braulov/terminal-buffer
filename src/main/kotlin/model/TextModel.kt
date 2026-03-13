@@ -7,15 +7,17 @@ data class Attributes(
 )
 
 class Line(
-    val cells: MutableList<Cell>
+    val cells: MutableList<Cell>,
+    var lineBreakType: LineBreakType = LineBreakType.NONE
 ) {
     fun asPlainString(): String =
         cells.joinToString("") { (it.character ?: ' ').toString() }
+}
 
-    companion object {
-        fun blank(width: Int): Line =
-            Line(MutableList(width) { Cell() })
-    }
+enum class LineBreakType {
+    NONE,
+    HARD,
+    SOFT
 }
 
 class Cell(
