@@ -519,4 +519,94 @@ class TerminalBufferTest {
             buffer.getLine(2)
         }
     }
+
+    @Test
+    fun insertTextInsertsIntoCurrentLine() {
+        val buffer = TerminalBuffer(width = 6, height = 2, scrollbackMaxSize = 10)
+
+        buffer.writeText("abcd")
+        buffer.setCursorPosition(Position(1, 0))
+        buffer.insertText("XY")
+
+        assertEquals(
+            "aXYbcd\n      ",
+            buffer.getScreen()
+        )
+    }
+
+    @Test
+    fun insertTextShiftsExistingTextRight() {
+        val buffer = TerminalBuffer(width = 5, height = 2, scrollbackMaxSize = 10)
+
+        buffer.writeText("abc")
+        buffer.setCursorPosition(Position(1, 0))
+        buffer.insertText("Z")
+
+        assertEquals(
+            "aZbc \n     ",
+            buffer.getScreen()
+        )
+    }
+
+    @Test
+    fun insertTextWrapsOverflowToNextLine() {
+        val buffer = TerminalBuffer(width = 5, height = 2, scrollbackMaxSize = 10)
+
+        buffer.writeText("abcde")
+        buffer.setCursorPosition(Position(2, 0))
+        buffer.insertText("XYZ")
+
+        assertEquals(
+            "abXYZ\ncde  ",
+            buffer.getScreen()
+        )
+    }
+
+    @Test
+    fun insertTextCanCascadeAcrossMultipleLines() {
+        val buffer = TerminalBuffer(width = 4, height = 3, scrollbackMaxSize = 10)
+
+        buffer.writeText("AAAA\nBBBB\nCCCC")
+        buffer.setCursorPosition(Position(2, 0))
+        buffer.insertText("XY")
+
+        assertEquals(
+            "AAXY\nAABB\nBBCC",
+            buffer.getScreen()
+        )
+    }
+
+    @Test
+    fun insertTextUsesCurrentAttributes() {
+        val buffer = TerminalBuffer(width = 5, height = 2, scrollbackMaxSize = 10)
+
+        buffer.writeText("abc")
+        buffer.setCursorPosition(Position(1, 0))
+        buffer.setAttributes(
+            foregroundColor = 7,
+            backgroundColor = 8,
+            style = 9
+        )
+
+        buffer.insertText("X")
+
+        assertEquals('X', buffer.getChar(Position(1, 0)))
+        assertEquals(
+            Attributes(7, 8, 9),
+            buffer.getAttributes(Position(1, 0))
+        )
+    }
+
+    @Test
+    fun insertTextWithEmptyStringDoesNothing() {
+        val buffer = TerminalBuffer(width = 5, height = 2, scrollbackMaxSize = 10)
+
+        buffer.writeText("abc")
+        buffer.insertText("")
+
+        assertEquals(
+            "abc  \n     ",
+            buffer.getScreen()
+        )
+    }
 }

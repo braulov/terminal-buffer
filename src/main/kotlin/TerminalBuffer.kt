@@ -73,7 +73,59 @@ class TerminalBuffer(
         }
     }
 
-    fun insertText(text: String): Nothing = TODO()
+    fun insertText(text: String) {
+        if (text.isEmpty()) return
+
+        var row = cursor.getPosition().row
+        var column = cursor.getPosition().column
+
+        val currentSegment = StringBuilder()
+
+        fun flushSegment() {
+            if (currentSegment.isEmpty()) return
+
+            val cells = currentSegment.map { ch -> Cell(ch, attributes) }
+            insertCellsAt(
+                screenRow = row,
+                column = column,
+                cells = cells
+            )
+
+            val totalOffset = column + cells.size
+            row += totalOffset / width
+            column = totalOffset % width
+
+            if (row >= height) {
+                val overflowRows = row - (height - 1)
+                repeat(overflowRows) {
+                    consumeOneVirtualBlankRowIfPresent()
+                    history.appendLine(blankLine())
+                }
+                row = height - 1
+            }
+
+            currentSegment.clear()
+        }
+
+        for (ch in text) {
+            if (ch == '\n') {
+                flushSegment()
+                column = 0
+                if (row < height - 1) {
+                    row++
+                } else {
+                    consumeOneVirtualBlankRowIfPresent()
+                    history.appendLine(blankLine())
+                    row = height - 1
+                }
+            } else {
+                currentSegment.append(ch)
+            }
+        }
+
+        flushSegment()
+        cursor.setPosition(Position(column, row))
+    }
 
     fun fillLine(row: Int, char: Char?) {
         require(row in 0 until height) {
@@ -171,6 +223,63 @@ class TerminalBuffer(
         }
     }
 
+    private fun trimTrailingBlankCells(cells: List<Cell>): List<Cell> {
+        var lastNonBlank = cells.size - 1
+
+        while (lastNonBlank >= 0 && cells[lastNonBlank].character == null) {
+            lastNonBlank--
+        }
+
+        return if (lastNonBlank < 0) {
+            emptyList()
+        } else {
+            cells.subList(0, lastNonBlank + 1)
+        }
+    }
+
+    private fun insertCellsAt(screenRow: Int, column: Int, cells: List<Cell>) {
+        require(screenRow in 0 until height)
+        require(column in 0 until width)
+
+        var row = screenRow
+        var insertionColumn = column
+        var carry: List<Cell> = cells
+
+        while (carry.isNotEmpty()) {
+            val line = ensureWritableScreenLine(row)
+            val original = line.cells.toMutableList()
+
+            val prefix = original.subList(0, insertionColumn).toMutableList()
+            val suffix = original.subList(insertionColumn, width).toMutableList()
+
+            val combined = prefix + carry + suffix
+
+            val newLineCells = combined.take(width).toMutableList()
+            while (newLineCells.size < width) {
+                newLineCells.add(Cell())
+            }
+
+            for (i in 0 until width) {
+                line.cells[i] = newLineCells[i]
+            }
+
+            carry = if (combined.size > width) {
+                trimTrailingBlankCells(combined.drop(width))
+            } else {
+                emptyList()
+            }
+
+            if (carry.isNotEmpty()) {
+                insertionColumn = 0
+                if (row < height - 1) {
+                    row++
+                } else {
+                    carry = emptyList()
+                }
+            }
+        }
+    }
+
     private fun moveToNextLine() {
         val pos = cursor.getPosition()
         if (pos.row < height - 1) {
@@ -193,13 +302,16 @@ class TerminalBuffer(
     }
 
     private fun materializeScreenView() {
+        val currentScrollbackSize = scrollbackSize()
+        val currentScreen = screenLines()
+
         val newHistory = RingLineHistory(width, height, scrollbackMaxSize)
 
-        for (i in 0 until scrollbackSize()) {
+        for (i in 0 until currentScrollbackSize) {
             newHistory.appendLine(history.getLine(i))
         }
 
-        for (line in screenLines()) {
+        for (line in currentScreen) {
             newHistory.appendLine(copyLine(line))
         }
 
