@@ -1,5 +1,7 @@
 package org.example
 
+import org.example.model.MoveType
+import org.example.model.Position
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -186,5 +188,40 @@ class TerminalBufferTest {
             "A   \n    \nX   ",
             buffer.getScreenAndScrollback()
         )
+    }
+
+    @Test
+    fun cursorStartsAtTopLeftCorner() {
+        val buffer = TerminalBuffer(width = 5, height = 3, scrollbackMaxSize = 10)
+
+        assertEquals(Position(0, 0), buffer.getCursorPosition())
+    }
+
+    @Test
+    fun setCursorPositionClampsToScreenBounds() {
+        val buffer = TerminalBuffer(width = 5, height = 3, scrollbackMaxSize = 10)
+
+        buffer.setCursorPosition(Position(99, 99))
+        assertEquals(Position(4, 2), buffer.getCursorPosition())
+
+        buffer.setCursorPosition(Position(-5, -7))
+        assertEquals(Position(0, 0), buffer.getCursorPosition())
+    }
+
+    @Test
+    fun moveCursorRespectsScreenBounds() {
+        val buffer = TerminalBuffer(width = 5, height = 3, scrollbackMaxSize = 10)
+
+        buffer.moveCursor(MoveType.RIGHT, 2)
+        buffer.moveCursor(MoveType.DOWN, 1)
+        assertEquals(Position(2, 1), buffer.getCursorPosition())
+
+        buffer.moveCursor(MoveType.LEFT, 10)
+        buffer.moveCursor(MoveType.UP, 10)
+        assertEquals(Position(0, 0), buffer.getCursorPosition())
+
+        buffer.moveCursor(MoveType.RIGHT, 10)
+        buffer.moveCursor(MoveType.DOWN, 10)
+        assertEquals(Position(4, 2), buffer.getCursorPosition())
     }
 }

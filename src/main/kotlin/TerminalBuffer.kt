@@ -4,6 +4,7 @@ import org.example.model.Attributes
 import org.example.model.Cell
 import org.example.model.Cursor
 import org.example.model.Line
+import org.example.model.MoveType
 import org.example.model.Position
 import org.example.storage.LineHistory
 import org.example.storage.RingLineHistory
@@ -30,6 +31,27 @@ class TerminalBuffer(
         style: Int
     ) {
         attributes = Attributes(foregroundColor, backgroundColor, style)
+    }
+
+    fun getCursorPosition(): Position = cursor.getPosition()
+
+    fun setCursorPosition(position: Position) {
+        val clampedColumn = position.column.coerceIn(0, width - 1)
+        val clampedRow = position.row.coerceIn(0, height - 1)
+        cursor.setPosition(Position(clampedColumn, clampedRow))
+    }
+
+    fun moveCursor(type: MoveType, count: Int = 1) {
+        require(count >= 0) { "Count must be non-negative" }
+
+        val current = cursor.getPosition()
+        val newPosition = when (type) {
+            MoveType.UP -> Position(current.column, (current.row - count).coerceAtLeast(0))
+            MoveType.DOWN -> Position(current.column, (current.row + count).coerceAtMost(height - 1))
+            MoveType.LEFT -> Position((current.column - count).coerceAtLeast(0), current.row)
+            MoveType.RIGHT -> Position((current.column + count).coerceAtMost(width - 1), current.row)
+        }
+        cursor.setPosition(newPosition)
     }
 
     fun writeText(text: String): Nothing = TODO()
