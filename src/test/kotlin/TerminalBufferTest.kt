@@ -609,4 +609,45 @@ class TerminalBufferTest {
             buffer.getScreen()
         )
     }
+
+    @Test
+    fun insertTextHandlesNewlineInsideInsertedText() {
+        val buffer = TerminalBuffer(width = 5, height = 3, scrollbackMaxSize = 10)
+
+        buffer.writeText("abcde\n12345")
+        buffer.setCursorPosition(Position(2, 0))
+        buffer.insertText("X\nY")
+
+        assertEquals(
+            "abXcd\nYe123\n45   ",
+            buffer.getScreen()
+        )
+    }
+    @Test
+    fun insertTextDropsOverflowPastLastVisibleRow() {
+        val buffer = TerminalBuffer(width = 4, height = 2, scrollbackMaxSize = 10)
+
+        buffer.writeText("AAAA\nBBBB")
+        buffer.setCursorPosition(Position(3, 0))
+        buffer.insertText("XYZ")
+
+        assertEquals(
+            "AAAX\nYZAB",
+            buffer.getScreen()
+        )
+    }
+    @Test
+    fun insertTextMaterializesVirtualRow() {
+        val buffer = TerminalBuffer(width = 5, height = 3, scrollbackMaxSize = 10)
+
+        buffer.appendLineForTest("abc")
+        buffer.setCursorPosition(Position(1, 0))
+        buffer.insertText("XY")
+
+        assertEquals(
+            " XY  \n     \nabc  ",
+            buffer.getScreen()
+        )
+    }
+
 }
